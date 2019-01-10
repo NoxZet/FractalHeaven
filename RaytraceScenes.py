@@ -12,4 +12,4 @@ mainScene.addLights(LightGlobalCone(normalizeVector((-3, 1, 1)), math.pi/4.0, (0
 #mainScene.addLights(LightGlobalCone(normalizeVector((-1.5, 3, 1)), math.pi/1.5, (0.0, 0.0, 1.0), 1))
 #mainScene.addLights(LightGlobalHighlight((0.15, 0.15, 0.15), 1))
 size = (1440, 1200)
-renderRaytrace(raytraceScene(mainScene, size, (0, -3.5, 0), (0, 0.15), 0.0006, 12), size, "sceneTestF.png")
+renderRaytrace(raytraceScene(mainScene, size, (0, -3.5, 0), (0, 0.15), 0.0006, 12), size, "sceneTest.png")

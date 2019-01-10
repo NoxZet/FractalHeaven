@@ -12,7 +12,7 @@ def tupleMagnitude(tuple):
 
 # Much faster for 3D vectors
 def vectorMagnitude(v1):
-    return numpy.sqrt(v1[0]**2 + v1[1]**2 + v1[2]**2)
+    return math.sqrt(v1[0]**2 + v1[1]**2 + v1[2]**2)
 
 
 def normalVector(v1, v2):
@@ -50,6 +50,44 @@ def multiplyVectorComponents(v1, v2):
     return (v1[0]*v2[0], v1[1]*v2[1], v1[2]*v2[2])
 
 
+# This function might seem heavy but it wins against numpy because of conversion overhead
+def solveMatrix(depth, left, consts):
+    if depth == 1:
+        if left[0][0] == 0:
+            return None
+        return [consts[0]/left[0][0]]
+    newLeft = []
+    newConsts = []
+    res = None
+    lowest = None
+    lowestVal = None
+    for i in range(depth):
+        if left[i][0] == 0:
+            continue
+        lowest = i
+        lowestVal = left[i][0]
+    for i in range(depth):
+        if i == lowest:
+            continue
+        if left[i][0] == 0:
+            newLeft.append(left[i][1:])
+            newConsts.append(consts[i])
+        else:
+            newLeftSingle = []
+            for j in range(1, depth):
+                newLeftSingle.append(left[i][j]-left[lowest][j]/lowestVal*left[i][0])
+            newLeft.append(newLeftSingle)
+            newConsts.append(consts[i]-consts[lowest]/lowestVal*left[i][0])
+        if len(newLeft) == depth-1:
+            res = solveMatrix(depth-1, newLeft, newConsts)
+    if res is None:
+        return None
+    newConst = consts[lowest]
+    for j in range(1, depth):
+        newConst -= res[j-1]*left[lowest][j]
+    return [newConst/lowestVal] + res
+
+
 # Line given by starting point
 class PhysLine:
     def __init__(self, startPoint, v1, mp1=None, mp2=None):
@@ -85,12 +123,11 @@ class PhysPlane:
         algRight = [line.p1[0] - self.p1[0],
                     line.p1[1] - self.p1[1],
                     line.p1[2] - self.p1[2]]
-        try:
-            result = numpy.linalg.solve(algLeft, algRight)
-            if 0 <= result[0] <= 1 and 0 <= result[1] <= 1 and line.isValidMp(result[2]):
-                return tuple(result)
-            else: return False
-        except: return False
+        result = solveMatrix(3, algLeft, algRight)
+        if result is None: return None
+        if 0 <= result[0] <= 1 and 0 <= result[1] <= 1 and line.isValidMp(result[2]):
+            return (result[2], result[0], result[1])
+        else: return None
 
     def getNormalOnPoint(self, collisionPoint):
         return normalizeVector(normalVector(self.v1, self.v2))
@@ -104,6 +141,15 @@ class PhysPlane:
     def bounceVector(self, v1, collisionPoint):
         n1 = self.getNormalOnPoint(collisionPoint)
         return addVectorsMultiplied(v1, n1, -2*dotProductVectors(v1, n1))
+
+
+class PhysCircle(PhysPlane):
+    def lineIntersect(self, line):
+        result = super().lineIntersect(line)
+        if result is None: return None
+        if (result[1]*2-1)**2 + (result[2]*2-1)**2 <= 1:
+            return result
+        return None
 
 
 class PhysSphere:
@@ -127,12 +173,17 @@ class PhysSphere:
         degree0 = ((self.p1[0] - line.p1[0])**2
                   +(self.p1[1] - line.p1[1])**2
                   +(self.p1[2] - line.p1[2])**2 - self.r1**2)
-        try:
+        discrim = degree1**2 - 4*degree2*degree0
+        if discrim < 0: return None
+        root = math.sqrt(discrim)
+        res = ((-degree1-root)/(2*degree2), (-degree1+root)/(2*degree2))
+        return res if line.isValidMp(res[0]) else None
+        '''try:
             roots = numpy.roots([degree2, degree1, degree0])
             if True in numpy.iscomplex(roots): return None
             res = (numpy.amin(roots), numpy.amax(roots))
             return res if line.isValidMp(res[0]) else None
-        except: return None
+        except: return None'''
 
     def getNormalOnPoint(self, collisionPoint):
         return normalizeVector(subVectors(collisionPoint, self.p1))
@@ -181,6 +232,39 @@ class LightGlobalHighlight:
         ray.lbaked = addVectors(ray.lbaked, multiplyVectorComponents(ray.lint, self.lint) if self.tinted else self.lint)
 
 
+def standardProcessImpact(obj, ray, impact):
+    if impact is None:
+        impact = obj.lineIntersect(ray)[0]
+    impactP = addVectorsMultiplied(ray.p1, ray.v1, impact)
+    bounceV = obj.bounceVector(ray.v1, impactP)
+    ray.applyColorBounce(obj.lsub)
+    ray.p1 = impactP
+    ray.v1 = bounceV
+    ray.bounces += 1
+
+
+class ObjectPlane(PhysPlane):
+    def __init__(self, startPoint, v1, v2, color):
+        self.p1 = startPoint
+        self.v1 = v1
+        self.v2 = v2
+        self.lsub = color
+
+    def processImpact(self, ray, impact=None):
+        standardProcessImpact(self, ray, impact)
+
+
+class ObjectCircle(PhysCircle):
+    def __init__(self, startPoint, v1, v2, color):
+        self.p1 = startPoint
+        self.v1 = v1
+        self.v2 = v2
+        self.lsub = color
+
+    def processImpact(self, ray, impact=None):
+        standardProcessImpact(self, ray, impact)
+
+
 class ObjectSphere(PhysSphere):
     def __init__(self, startPoint, radius, color):
         self.p1 = startPoint
@@ -190,20 +274,13 @@ class ObjectSphere(PhysSphere):
     # This is object method and not ray method so that each object can apply anything it wants to the rays
     # Modifies the ray and returns list of any extra rays that were generated (empty list if no rays were generated)
     # Returns None if there was no impact
-    def processImpact(self, ray):
-        impact = self.lineIntersect(ray)
-        if impact[0] <= 0: return None
-        impactP = addVectorsMultiplied(ray.p1, ray.v1, impact[0])
-        bounceV = self.bounceVector(ray.v1, impactP)
-        ray.applyColorBounce(self.lsub)
-        ray.p1 = impactP
-        ray.v1 = bounceV
-        ray.bounces += 1
+    def processImpact(self, ray, impact=None):
+        standardProcessImpact(self, ray, impact)
 
 
 class Ray(PhysLine):
     def __init__(self, startPoint, v1, sourcePixel, maxBounces=1000, maxGenerations=1, generation=1):
-        super().__init__(startPoint, v1, 0)
+        super().__init__(startPoint, v1, 0.000001)
         self.sourcePixel = sourcePixel
         self.bouncesMax = maxBounces
         # Used to limit ray splitting
@@ -240,6 +317,19 @@ class Scene:
                 self.lightStack.append(obj)
         except:
             self.lightStack.append(lights)
+
+
+# Returns list of three ObjectPlane that form hexahedron on given vectors
+def generateHex(beg, v1, v2, v3, color):
+    sumV = addVectors(addVectors(addVectors(v1, v2), v3), beg)
+    return [
+        ObjectPlane(sumV, v1, v2, color),
+        ObjectPlane(sumV, v1, v3, color),
+        ObjectPlane(sumV, v2, v3, color),
+        ObjectPlane(sumV, multiplyVector(v1, -1), multiplyVector(v2, -1), color),
+        ObjectPlane(sumV, multiplyVector(v1, -1), multiplyVector(v3, -1), color),
+        ObjectPlane(sumV, multiplyVector(v2, -1), multiplyVector(v3, -1), color)
+    ]
 
 
 # Camera angle is 2-tuple (rotation left-right, rotation up-down)
@@ -279,7 +369,7 @@ def raytraceScene(scene, size, cameraPoint, cameraAngle, cameraPixelAngle, maxBo
             objectCollisions.sort(key=lambda pair: pair[0])
             for light in scene.lightStack:
                 light.processLight(ray, (0, objectCollisions[0][0]))
-            objectCollisions[0][1].processImpact(ray)
+            objectCollisions[0][1].processImpact(ray, objectCollisions[0][0])
     return pixels
 
 
@@ -295,16 +385,3 @@ def renderRaytrace(pixels, size, targetFile):
         for x in range(size[0]):
             outImg.putpixel((x, y), floatToIntRGB(pixels[y][x]))
     outImg.save(targetFile)
-
-
-mainScene = Scene()
-mainScene.addObjects(ObjectSphere((-0.5, 0, 0), 0.8, (1.0, 0.75, 0.75)))
-mainScene.addObjects(ObjectSphere((0.85, 0, 0), 0.5, (0.75, 0.75, 1.0)))
-mainScene.addLights(LightGlobalCone(normalizeVector((-3, 3, 1)), math.pi/1.5, (1.0, 0.0, 0.0), 1))
-mainScene.addLights(LightGlobalCone(normalizeVector((-2.25, 3, 2.5)), math.pi/1.5, (0.0, 1.0, 0.0), 1))
-mainScene.addLights(LightGlobalCone(normalizeVector((-1.5, 3, 1)), math.pi/1.5, (0.0, 0.0, 1.0), 1))
-mainScene.addLights(LightGlobalHighlight((0.15, 0.15, 0.15), 1))
-#size = (120, 120)
-#renderRaytrace(raytraceScene(mainScene, size, (0, -3, 0), (0, 0), 0.7), size, "scene.png")
-size = (520, 200)
-renderRaytrace(raytraceScene(mainScene, size, (0.0, -3, 0), (0, 0), 0.002), size, "scene6.png")
