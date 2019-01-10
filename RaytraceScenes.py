@@ -1,0 +1,15 @@
+from Raytracing import *
+
+mainScene = Scene()
+mainScene.addObjects(ObjectSphere((-0.5, 0, 0), 0.8, (1.0, 0.75, 0.75)))
+mainScene.addObjects(ObjectSphere((0.85, 0, 0), 0.5, (0.75, 0.75, 1.0)))
+mainScene.addObjects(ObjectPlane((-1.5, 2, 0), (3, 0, 0), (0, -2, 2), (1.0, 1.0, 1.0)))
+mainScene.addObjects(generateHex((1, 0, 0), (0.30, -0.10, 0), (0.10, 0.30, 0), (0.40, 1.20, 4), (1.0, 0.95, 0.8)))
+mainScene.addLights(LightGlobalCone(normalizeVector((-3, 3, 1)), math.pi/1.5, (1.0, 1.0, 1.0), 1))
+mainScene.addLights(LightGlobalCone(normalizeVector((-3, 1, 1)), math.pi/4.0, (0.5, 0.0, 0.0), 1))
+#mainScene.addLights(LightGlobalCone(normalizeVector((-3, 3, 1)), math.pi/1.5, (1.0, 0.0, 0.0), 1))
+#mainScene.addLights(LightGlobalCone(normalizeVector((-2.25, 3, 2.5)), math.pi/1.5, (0.0, 1.0, 0.0), 1))
+#mainScene.addLights(LightGlobalCone(normalizeVector((-1.5, 3, 1)), math.pi/1.5, (0.0, 0.0, 1.0), 1))
+#mainScene.addLights(LightGlobalHighlight((0.15, 0.15, 0.15), 1))
+size = (1440, 1200)
+renderRaytrace(raytraceScene(mainScene, size, (0, -3.5, 0), (0, 0.15), 0.0006, 12), size, "sceneTestF.png")
